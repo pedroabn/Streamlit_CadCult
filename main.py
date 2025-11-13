@@ -1,45 +1,80 @@
 #%% Importando bibliotecas
 import streamlit as st
 import pandas as pd
+from shapely import wkt
+import geopandas as gpd
 import plotly.express as px
-from datetime import datetime
+
+# from defs import recife
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import MarkerCluster, HeatMap, MiniMap, GroupedLayerControl
 import branca.colormap as cm
 
 #%% Base de dados
-pb_demo = pd.read_excel(r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.xlsx')
+pb_demo = r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson'
+pb_demo = gpd.read_file(pb_demo,engine="pyogrio")
 teatro = pd.read_excel(r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\teatros.xlsx')
 sic_f = pd.read_excel(r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Cadastrados.xlsx')
 
 @st.cache_data
 def load_data():
-    df = pd.read_excel(r"C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Cadastrados.xlsx")
-
+    df = sic_f.query('bairro in @recife')
     return df
 
 df = load_data()
 
+def load_geo():
+    """
+    Carrega pb_demo e converte para um formato eficiente.
+    Se existir Parquet → usa Parquet (mais rápido).
+    Caso contrário → lê GeoJSON e converte.
+    """
+
+    parquet_path = r"C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.parquet"
+    geojson_path = r"C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson"
+
+    try:
+        # tenta parquet (10x mais rápido)
+        gdf = gpd.read_parquet(parquet_path)
+        return gdf
+    except:
+        # fallback → geojson
+        gdf = gpd.read_file(geojson_path)
+
+        # salva para acelerar próximas execuções
+        gdf.to_parquet(parquet_path)
+        return gdf
+
+
 #%% Construção da parte lateral do streamlit
 with st.sidebar:
     st.title("Cadastros Cultura do Recife")
-    area_a = st.selectbox("Area de atuação",df["area_atuacao"].sort_values().unique())
-    bairro = st.selectbox("Bairro",df["EBAIRRNOMEOF"].sort_values().unique())
+    lista_areas = ["TODOS"] + df["area_atuacao"].dropna().sort_values().unique().tolist()
+    area_a = st.selectbox("Área de atuação", lista_areas)
+    
+    lista_bairros = ["TODOS"] + df["bairro"].dropna().sort_values().unique().tolist()
+    bairro = st.selectbox("Bairro", lista_bairros)
+# --- Criar uma cópia filtrável ---
+df_filtrado = df.copy()
+# FILTRO POR BAIRRO
+if bairro != "TODOS":
+    df_filtrado = df_filtrado[df_filtrado["bairro"] == bairro]
+# FILTRO POR ÁREA
+if area_a != "TODOS":
+    df_filtrado = df_filtrado[df_filtrado["area_atuacao"] == area_a]
+# DataFrame final para o mapa:
+df_area = df_filtrado
 
+# DataFrame por bairro (para blocos de informação)
 if bairro == "TODOS":
-    pass
+    df_pb = df.copy()
 else:
-    df = df[df["EBAIRRNOMEOF"] == bairro]
-
-#df baseada na escolha da area_a
-df_area_a = df[df["area_atuacao"] == area_a]
-
-#df baseada na escolha do Bairro
-df_pb = df[df["EBAIRRNOMEOF"] == bairro]
+    df_pb = df[df["bairro"] == bairro]
 #%% Construção do mapa
-def display_mapa(df_area):
 
+def display_mapa(df_area):
+    
     # 1. Coordenadas para centralização do mapa.
     recife_coords = [-8.05428, -34.88126]
     m = folium.Map(location=recife_coords, zoom_start=13, tiles="OpenStreetMap")
@@ -52,12 +87,23 @@ def display_mapa(df_area):
     linear.add_to(m)
 
     # ---- Resumo por bairro ----
+    pb_demo = load_geo()
+    geojson_pb = pb_demo.to_json()
     fgpb = folium.FeatureGroup(name='Resumo por Bairro', show=True)
     folium.GeoJson(
-        pb_demo,
-        style_function=lambda feature: {'color': 'black','weight': 0.5}
+        geojson_pb,
+        name="Bairros",
+        style_function=lambda f: {
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.1
+        },
+        tooltip=folium.GeoJsonTooltip(
+            fields=["EBAIRRNOMEOF", "inscritos", "total_pessoas", "Qtd_caps"],
+            aliases=["Bairro:", "Inscritos:", "Total Pessoas:", "CAPS:"]
+        ),
     ).add_to(fgpb)
-    fgpb.add_to(m)
+    m.add_child(fgpb)
 
     # ---- Cluster geral ----
     for row in df_area.itertuples():
@@ -146,12 +192,12 @@ def dict_area(df):
             escolaridade_mv = ('escolaridade',  pd.Series.mode)
             ).reset_index()
     nome = area_a
-    inscritos = gb_cads['inscritos'].iloc[0]
-    genero_mv =  gb_cads['genero_mv'].iloc[0]
-    idade_mv = gb_cads['idade_mv'].iloc[0]
-    raca_mv =  gb_cads['raca_mv'].iloc[0]
-    escolaridade_mv =  gb_cads['escolaridade_mv'].iloc[0]
-    bairro_mv = gb_cads['bairro_mv'].iloc[0]
+    inscritos = gb_cads['inscritos']
+    genero_mv =  gb_cads['genero_mv']
+    idade_mv = gb_cads['idade_mv']
+    raca_mv =  gb_cads['raca_mv']
+    escolaridade_mv =  gb_cads['escolaridade_mv']
+    bairro_mv = gb_cads['bairro_mv']
 
     dicionario = {
         "NOME":nome,
@@ -165,7 +211,7 @@ def dict_area(df):
 
     return dicionario
 
-dicionario = dict_area(df_area_a)
+dicionario = dict_area(df_area)
 
 ####################----------------------------###########################
 #%% Parte inferior ao mapa
@@ -198,7 +244,7 @@ dicionario = dict_area(df_area_a)
 # # DADOS DE COMPARATIVO ENTRE O GERAL E A AREA DE ATUAÇÃO ESCOLHIDA
 # def display_dados_eleitorais(df):
 #     # Minerando dados
-#     sigla_partido = df_area_a["SG_PARTIDO"].values[0]
+#     sigla_partido = df_area["SG_PARTIDO"].values[0]
 #     df_partido = df[df["SG_PARTIDO"] == sigla_partido]
 #     df_partido = df_partido.groupby(['NM_URNA_CANDIDATO','NR_CANDIDATO','DS_SIT_TOT_TURNO'
 #     ],as_index=False)['QT_VOTOS'].sum()
@@ -266,7 +312,7 @@ dicionario = dict_area(df_area_a)
 
 # def graph_candidatos_chapa(df):
 #     # Organizando dados
-#     sigla_partido = df_area_a["SG_PARTIDO"].values[0]
+#     sigla_partido = df_area["SG_PARTIDO"].values[0]
 #     df = df[df["SG_PARTIDO"] == sigla_partido]
 #     df = df.groupby(["NM_URNA_CANDIDATO","DS_GENERO"],as_index=False)['QT_VOTOS'].sum()
 #     df = df.sort_values(by='QT_VOTOS', ascending=False)
@@ -354,7 +400,7 @@ Número de inscritos: {dicionario["INSCRITOS"]}
 ############### Mapa
 
 st.markdown(f"### :round_pushpin: **Mapa de votação {area_a}**")
-m = display_mapa(df_area_a)
+m = display_mapa(df_area)
 st_data = st_folium(m, width="100%", height=700)
 
 ############### Abaixo do mapa, com os blocos de informação ##############
@@ -408,7 +454,7 @@ st.markdown("### :ballot_box_with_ballot: **Dados eleitorais & Partidários**")
 # col1, col2 = st.columns(2)
 
 # plot_votos_candidatos = graph_candidatos(df)
-# plot_bairros = graph_bairros(df_area_a)
+# plot_bairros = graph_bairros(df_area)
 # with col1:
 #     st.plotly_chart(plot_votos_candidatos)
 
@@ -416,7 +462,7 @@ st.markdown("### :ballot_box_with_ballot: **Dados eleitorais & Partidários**")
 
 
 # plot_votos_chapa = graph_candidatos_chapa(df)
-# plot_locais = graph_locais(df_area_a)
+# plot_locais = graph_locais(df_area)
 # with col2:
 #     st.plotly_chart(plot_votos_chapa)
 
