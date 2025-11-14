@@ -4,19 +4,13 @@ import pandas as pd
 import unicodedata
 import geopandas as gpd
 import plotly.express as px
-from defs import recife
+from utils import recife, dic_sic_cad, colgate, limpar_acento
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import MarkerCluster, HeatMap, MiniMap, GroupedLayerControl
 import branca.colormap as cm
 
 #%% Base de dados
-def limpar_acento(txt):
-    if pd.isnull(txt):
-        return txt
-    txt = ''.join(ch for ch in unicodedata.normalize('NFKD', txt) 
-        if not unicodedata.combining(ch))
-    return txt
 
 pb_demo = r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson'
 
@@ -349,33 +343,28 @@ dicionario = dict_area(df_area)
 #     fig.update_traces(marker_color=[cores_itens[p] for p in df['DISTRITO_ADM']])
 
 #     return fig
+#%% SIC
+def graph_locais(df):
+    # Organizando dados
+    df = colgate(df)
 
-# def graph_locais(df):
-#     # Organizando dados
-#     df = df.groupby(["NM_LOCAL_VOTACAO","BAIRRO","DISTRITO_ADM"],as_index=False)['QT_VOTOS'].sum()
-#     df = df.sort_values(by='QT_VOTOS', ascending=False)
-#     df = df.head(10)
+    # Definindo as cores
+    cores_itens = {
+    "2021": "#1f77b4",  # Azul
+    "2022": "#ff7f0e",  # Laranja
+    "2023": "#2ca02c",  # Verde
+    "2024": "#d62728",  # Vermelho
+    "2025": "#9467bd",  # Roxo
+    } 
 
-#     # Definindo as cores
-#     cores_itens = {
-#     "DABEL": "#1f77b4",  # Azul
-#     "DABEN": "#ff7f0e",  # Laranja
-#     "DAENT": "#2ca02c",  # Verde
-#     "DAGUA": "#d62728",  # Vermelho
-#     "DAICO": "#9467bd",  # Roxo
-#     "DAMOS": "#8c564b",  # Marrom
-#     "DAOUT": "#e377c2",  # Rosa
-#     "DASAC": "#7f7f7f"   # Cinza
-#     }
+    # Organizando plots
+    fig = px.bar(df, x='ano', y='valor', 
+    hover_data=["ano","valor"],title=f"Top 10 locais de votação {area_a}",
+    )
 
-#     # Organizando plots
-#     fig = px.bar(df, x='QT_VOTOS', y='NM_LOCAL_VOTACAO', orientation = 'h',
-#     hover_data=["BAIRRO","DISTRITO_ADM"],title=f"Top 10 locais de votação {area_a}",
-#      labels ={"NM_LOCAL_VOTACAO":"", "QT_VOTOS":"Votos"})
+    # fig.update_traces(marker_color=[cores_itens[p] for p in df['ano']])
 
-#     fig.update_traces(marker_color=[cores_itens[p] for p in df['DISTRITO_ADM']])
-
-#     return fig
+    return fig
 
 
 #%% Criando a cara da app
@@ -464,7 +453,7 @@ st.markdown("### :ballot_box_with_ballot: **Dados eleitorais & Partidários**")
 # ############## GRÁFICOS
 
 # st.markdown("""\n""")
-# st.markdown("### :bar_chart: **Gráficos**")
+st.markdown("### :bar_chart: **Gráficos**")
 
 # col1, col2 = st.columns(2)
 
@@ -477,8 +466,8 @@ st.markdown("### :ballot_box_with_ballot: **Dados eleitorais & Partidários**")
 
 
 # plot_votos_chapa = graph_candidatos_chapa(df)
-# plot_locais = graph_locais(df_area)
+plot_locais = graph_locais(sic)
 # with col2:
 #     st.plotly_chart(plot_votos_chapa)
 
-#     st.plotly_chart(plot_locais)
+st.plotly_chart(plot_locais)
