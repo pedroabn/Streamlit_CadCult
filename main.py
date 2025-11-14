@@ -1,79 +1,71 @@
 #%% Importando bibliotecas
 import streamlit as st
 import pandas as pd
-from shapely import wkt
+import unicodedata
 import geopandas as gpd
 import plotly.express as px
-
-# from defs import recife
+from defs import recife
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import MarkerCluster, HeatMap, MiniMap, GroupedLayerControl
 import branca.colormap as cm
 
 #%% Base de dados
+def limpar_acento(txt):
+    if pd.isnull(txt):
+        return txt
+    txt = ''.join(ch for ch in unicodedata.normalize('NFKD', txt) 
+        if not unicodedata.combining(ch))
+    return txt
+
 pb_demo = r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson'
-pb_demo = gpd.read_file(pb_demo,engine="pyogrio")
+
 teatro = pd.read_excel(r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\teatros.xlsx')
-sic_f = pd.read_excel(r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Cadastrados.xlsx')
+sic_f = (r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Cadastrados.xlsx')
+sic_f
+
 
 @st.cache_data
-def load_data():
-    df = sic_f.query('bairro in @recife')
-    return df
+def load_sic_data(path_sic, recife):
+    df = pd.read_excel(path_sic)
+    df['bairro'] = df['bairro'].apply(limpar_acento).str.upper()
+    return df.query('bairro in @recife')
 
-df = load_data()
+@st.cache_data
+def load_pb_demo(path_demo):
+    return gpd.read_file(path_demo,engine="pyogrio")
 
-def load_geo():
-    """
-    Carrega pb_demo e converte para um formato eficiente.
-    Se existir Parquet → usa Parquet (mais rápido).
-    Caso contrário → lê GeoJSON e converte.
-    """
-
-    parquet_path = r"C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.parquet"
-    geojson_path = r"C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson"
-
-    try:
-        # tenta parquet (10x mais rápido)
-        gdf = gpd.read_parquet(parquet_path)
-        return gdf
-    except:
-        # fallback → geojson
-        gdf = gpd.read_file(geojson_path)
-
-        # salva para acelerar próximas execuções
-        gdf.to_parquet(parquet_path)
-        return gdf
-
+df = load_sic_data(sic_f, recife)
+dfb = load_pb_demo(pb_demo)
 
 #%% Construção da parte lateral do streamlit
 with st.sidebar:
     st.title("Cadastros Cultura do Recife")
-    lista_areas = ["TODOS"] + df["area_atuacao"].dropna().sort_values().unique().tolist()
+
+    # --- listas ---
+    lista_areas = sorted(df["area_atuacao"].dropna().unique().tolist()) + ["TODOS"]
     area_a = st.selectbox("Área de atuação", lista_areas)
     
-    lista_bairros = ["TODOS"] + df["bairro"].dropna().sort_values().unique().tolist()
+    lista_bairros = sorted(dfb["EBAIRRNOMEOF"].dropna().unique().tolist()) + ["TODOS"]
     bairro = st.selectbox("Bairro", lista_bairros)
-# --- Criar uma cópia filtrável ---
-df_filtrado = df.copy()
+
+# --- criar dataframes filtráveis ---
+df_area = df.copy()
+dfb_map = dfb.copy()
+df_pb  = df.copy()   
+
 # FILTRO POR BAIRRO
 if bairro != "TODOS":
-    df_filtrado = df_filtrado[df_filtrado["bairro"] == bairro]
+    df_area = df_area[df_area["bairro"] == bairro]
+    dfb_map = dfb_map[dfb_map["EBAIRRNOMEOF"] == bairro]
+    df_pb  = df_pb[df_pb["bairro"] == bairro]
+
 # FILTRO POR ÁREA
 if area_a != "TODOS":
-    df_filtrado = df_filtrado[df_filtrado["area_atuacao"] == area_a]
-# DataFrame final para o mapa:
-df_area = df_filtrado
-
-# DataFrame por bairro (para blocos de informação)
-if bairro == "TODOS":
-    df_pb = df.copy()
-else:
-    df_pb = df[df["bairro"] == bairro]
+    df_area = df_area[df_area["area_atuacao"] == area_a]
 #%% Construção do mapa
 
-def display_mapa(df_area):
+def display_mapa(df_area, dfb):
     
     # 1. Coordenadas para centralização do mapa.
     recife_coords = [-8.05428, -34.88126]
@@ -87,11 +79,11 @@ def display_mapa(df_area):
     linear.add_to(m)
 
     # ---- Resumo por bairro ----
-    pb_demo = load_geo()
-    geojson_pb = pb_demo.to_json()
+
     fgpb = folium.FeatureGroup(name='Resumo por Bairro', show=True)
+
     folium.GeoJson(
-        geojson_pb,
+        dfb,
         name="Bairros",
         style_function=lambda f: {
             "color": "black",
@@ -99,8 +91,8 @@ def display_mapa(df_area):
             "fillOpacity": 0.1
         },
         tooltip=folium.GeoJsonTooltip(
-            fields=["EBAIRRNOMEOF", "inscritos", "total_pessoas", "Qtd_caps"],
-            aliases=["Bairro:", "Inscritos:", "Total Pessoas:", "CAPS:"]
+            fields=["EBAIRRNOMEOF", "inscritos", "total_pessoas"],
+            aliases=["Bairro:", "Inscritos:", "Total Pessoas:"]
         ),
     ).add_to(fgpb)
     m.add_child(fgpb)
@@ -191,14 +183,15 @@ def dict_area(df):
             raca_mv = ('raca',  pd.Series.mode),
             escolaridade_mv = ('escolaridade',  pd.Series.mode)
             ).reset_index()
+    
     nome = area_a
-    inscritos = gb_cads['inscritos']
-    genero_mv =  gb_cads['genero_mv']
-    idade_mv = gb_cads['idade_mv']
-    raca_mv =  gb_cads['raca_mv']
-    escolaridade_mv =  gb_cads['escolaridade_mv']
-    bairro_mv = gb_cads['bairro_mv']
-
+    inscritos = gb_cads['inscritos'].sum()
+    genero_mv =  gb_cads['genero_mv'].iat[0]
+    idade_mv = gb_cads['idade_mv'].iat[0].round(2)
+    raca_mv =  gb_cads['raca_mv'].iat[0]
+    escolaridade_mv =  gb_cads['escolaridade_mv'].iat[0]
+    bairro_mv = gb_cads['bairro_mv'].iat[0]
+    
     dicionario = {
         "NOME":nome,
         "INSCRITOS": inscritos,
@@ -387,20 +380,42 @@ dicionario = dict_area(df_area)
 
 #%% Criando a cara da app
 ## Escrevendo a ficha
-st.markdown(f"""
-## *{dicionario['NOME']}*
-Número de inscritos: {dicionario["INSCRITOS"]}
---- Bairro mais presente: {dicionario["BAIRRO MAIS PRESENTE"]}
---- Escolaridade média: {dicionario["ESCOLARIDADE"]}
-\n Idade média: {dicionario["IDADE"]} anos
---- Gênero: {dicionario["GÊNERO"]}
---- Raça: {dicionario["RAÇA"]}
-""")
+st.markdown(f"""<style>
+.table-full {{
+    width: 100%;
+    border-collapse: collapse;
+}}
+.table-full th, .table-full td {{
+    border: 0.5px solid #ddd;
+    padding: 8px;
+
+}}
+.table-full th {{
+    font-weight: bold;
+    text-align: center;
+}}
+
+.table-full td:nth-child(2) {{
+    text-align: center;
+}}
+</style>
+
+<table class="table-full">
+    <tr><th>Métrica</th><th>Valor</th></tr>
+    <tr><td>Número de inscritos</td><td>{dicionario["INSCRITOS"]}</td></tr>
+    <tr><td>Bairro mais presente</td><td>{dicionario["BAIRRO MAIS PRESENTE"]}</td></tr>
+    <tr><td>Escolaridade média</td><td>{dicionario["ESCOLARIDADE"]}</td></tr>
+    <tr><td>Idade média</td><td>{dicionario["IDADE"]} anos</td></tr>
+    <tr><td>Gênero</td><td>{dicionario["GÊNERO"]}</td></tr>
+    <tr><td>Raça</td><td>{dicionario["RAÇA"]}</td></tr>
+</table>
+""", unsafe_allow_html=True)
+
 # Fim do header
 ############### Mapa
 
-st.markdown(f"### :round_pushpin: **Mapa de votação {area_a}**")
-m = display_mapa(df_area)
+st.markdown(f"### :round_pushpin: **Mapa de Fazedores de cultura {area_a}**")
+m = display_mapa(df_area, dfb_map)
 st_data = st_folium(m, width="100%", height=700)
 
 ############### Abaixo do mapa, com os blocos de informação ##############
