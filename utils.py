@@ -25,14 +25,25 @@ recife = ['AFLITOS', 'AFOGADOS', 'ALTO DO MANDU', 'ALTO JOSÉ BONIFÁCIO',
        'VASCO DA GAMA', 'VÁRZEA', 'ZUMBI', 'ÁGUA FRIA']
 
 def colgate(df):
+    df = df.copy()  # segurança nível 1
     df['Bairro'] = df['Bairro'].apply(limpar_acento).str.upper()
-    df = df.query("Bairro in @recife")
+
+    # Filtra só Recife e garante cópia independente
+    df = df.query("Bairro in @recife").copy()
+
+    # Mapeia estilos
     df['Estilo'] = df['Estilo'].map(dic_sic_cad)
-    df['ano'] = pd.to_numeric(df['ano'], errors='coerce')
-    df['ano'] = pd.to_datetime(df['ano'], unit='D', origin='1899-12-30')
-    df['ano'] = df['ano'].dt.year
-    df = df.groupby(["Estilo","Bairro",'ano'],as_index=False)['valor'].sum().reset_index()
-    df = df.sort_values(by='ano', ascending=False)
+
+    # Converte número de série do Excel -> datetime -> ano
+    df['ano'] = (
+        pd.to_datetime(df['ano'], unit='D', origin='1899-12-30').dt.year
+    )
+
+    df = (df
+          .groupby(["Estilo", "ano"], as_index=False)
+          .sum()
+          .sort_values(by='ano', ascending=False))
+
     return df
 
 def limpar_acento(txt):

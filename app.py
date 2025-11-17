@@ -1,7 +1,7 @@
 #%% Importando bibliotecas
 import streamlit as st
 import pandas as pd
-import unicodedata
+from typing import Dict, Union
 import geopandas as gpd
 import plotly.express as px
 from utils import recife, dic_sic_cad, colgate, limpar_acento
@@ -9,7 +9,8 @@ from streamlit_folium import st_folium
 import folium
 from folium.plugins import MarkerCluster, HeatMap, MiniMap, GroupedLayerControl
 import branca.colormap as cm
-
+import locale
+locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 #%% Base de dados
 
 pb_demo = r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Infopbruto.geojson'
@@ -34,14 +35,14 @@ dfb = load_pb_demo(pb_demo)
 
 #%% Construção da parte lateral do streamlit
 with st.sidebar:
-    st.title("Cadastros Cultura do Recife")
+    st.title("Filtros de pesquisa")
 
     # --- listas ---
     lista_areas = sorted(df["area_atuacao"].dropna().unique().tolist()) + ["TODOS"]
     area_a = st.selectbox("Área de atuação", lista_areas)
     
     lista_bairros = sorted(dfb["EBAIRRNOMEOF"].dropna().unique().tolist()) + ["TODOS"]
-    bairro = st.selectbox("Bairro", lista_bairros)
+    bairro_select = st.selectbox("Bairro", lista_bairros)
 
 # --- criar dataframes filtráveis ---
 df_area = df.copy()
@@ -49,10 +50,10 @@ dfb_map = dfb.copy()
 df_pb  = df.copy()   
 
 # FILTRO POR BAIRRO
-if bairro != "TODOS":
-    df_area = df_area[df_area["bairro"] == bairro]
-    dfb_map = dfb_map[dfb_map["EBAIRRNOMEOF"] == bairro]
-    df_pb  = df_pb[df_pb["bairro"] == bairro]
+if bairro_select != "TODOS":
+    df_area = df_area[df_area["bairro"] == bairro_select]
+    dfb_map = dfb_map[dfb_map["EBAIRRNOMEOF"] == bairro_select]
+    df_pb  = df_pb[df_pb["bairro"] == bairro_select]
 
 # FILTRO POR ÁREA
 if area_a != "TODOS":
@@ -250,32 +251,50 @@ dicionario = dict_area(df_area)
 
 ####################----------------------------###########################
 #%% Parte inferior ao mapa
-# # Dados por bairro - Usar a DF direta por bairro aqui
-# def display_big_numbers_cand(df):
-#     #Organizando planilha de dados
-#     df = df.groupby(['NM_LOCAL_VOTACAO','BAIRRO'],as_index=False)['QT_VOTOS'].sum()
-    
-#     #Separando dados
-#     total_votos = df["QT_VOTOS"].sum()
-#     mediana_votos = df["QT_VOTOS"].median()
-#     locais_votacao = len((df["NM_LOCAL_VOTACAO"].unique()).tolist())
+# Dados por bairro - Usar a DF direta por bairro aqui
+def dados_Area_bairro(_df_filtrado: pd.DataFrame, _dfb_filtrado: pd.DataFrame) -> Dict[str, Union[str, int]]:
+    if _df_filtrado.empty or _dfb_filtrado.empty:
+        return {
+            "PCT_inscritos_bairro": "0%",
+            "N_idosos_inf": 0,
+            "pct_negros":0,
+            "N_espacos_social": 0,
+        }
+    try:
+        # Totais
+        total_no_bairro = _dfb_filtrado["inscritos"].sum()
+        na_area = len(_df_filtrado)
+        
+        # Percentual
+        pct = (na_area / total_no_bairro * 100) if total_no_bairro > 0 else 0
+        
+        # População vulnerável
+        cols = ["Idosos", "Infancia"]
+        n_idosos_inf = _dfb_filtrado[cols].fillna(0).sum().sum()
+        # Espaços sociais
+        cols = ["n_escolas", "qtd_Pracas", "Qtd_equipamentos", "compaz"]
+        n_espacos_social = _dfb_filtrado[cols].fillna(0).sum().sum()
+        # Pct de negros
+        _dfb_filtrado["pct_pretos"] = pd.to_numeric(_dfb_filtrado["pct_pretos"], errors='coerce')
+        pct_negros = (_dfb_filtrado["pct_pretos"] * 100).mean()
+        
+        return {
+            "PCT_inscritos_bairro": f"{pct:.1f}%",
+            "N_idosos_inf": f'{int(n_idosos_inf)}',
+            "N_espacos_social": int(n_espacos_social),
+            "pct_negros":f"{pct_negros:.1f}%",
+        }
+    except Exception as e:
+        st.error(f"❌ Erro ao calcular métricas: {str(e)}")
+        return {
+            "PCT_inscritos_bairro": "0%",
+            "pct_negros":0,
+            "N_idosos_inf": 0,
+            "N_espacos_social": 0,
+        }
+        
+dicionario2 = dados_Area_bairro(df_area, dfb_map)
 
-#     dicionario2 = {
-#         "Total de votos":total_votos,
-#         "Mediana": mediana_votos,
-#         "N Locais de votação":locais_votacao
-#     }
-
-#     return dicionario2
-
-# #Retornando o dicionário dados candidato - Ele faz o recorte para pegar apenas
-# #                                          os dados escolhidos pela sidebar. Não sei se quero isso
-# #Recorte de dados de bairro se for escolhido um bairro específico, ou geral
-# dicionario2 = display_big_numbers_cand(df_pb)
-
-# # Vou apagar isso aqui, já que vou usar apenas dados de bairro. Aqui ele integra dados gerais que batem com a opção de escolha do cadidato, posso fazer o mesmo,
-# # mas por enquanto, não. Vou deixar aberto, e se eu voltar, saiba:
-# #
 # # DADOS DE COMPARATIVO ENTRE O GERAL E A AREA DE ATUAÇÃO ESCOLHIDA
 # def display_dados_eleitorais(df):
 #     # Minerando dados
@@ -395,16 +414,28 @@ dicionario = dict_area(df_area)
 def graph_locais(df):
     # Organizando dados
     df = colgate(df)
-
-    # Organizando plots
-    fig = px.bar(df, x='ano', y='valor', 
-    hover_data=["ano","valor"],title=f"Investimento da área no SIC ao longo do ano {area_a}")
+    if area_a != "TODOS": 
+        df = df.query("Estilo == @area_a")
+    else: df = df
+   
+    fig = px.histogram(
+        df,
+        x='ano',
+        y='valor',
+        text_auto=True,
+        title=f"Investimento da área no SIC ao longo dos anos: {area_a}"
+    ).update_xaxes(type="category",        
+    title_text="Ano", 
+    categoryorder="category ascending" )
 
     return fig
 
 
+
 #%% Criando a cara da app
 ## Escrevendo a ficha
+st.markdown(f""" # **CADASTRADOS NA SECULT:**""")
+st.markdown(f""" ###  Dados das(os) {area_a} e no bairro {bairro_select}""")
 st.markdown(f"""<style>
 .table-full {{
     width: 100%;
@@ -437,71 +468,45 @@ st.markdown(f"""<style>
 """, unsafe_allow_html=True)
 
 # Fim do header
-############### Mapa
+# Mapa
 
 st.markdown(f"### :round_pushpin: **Mapa de Fazedores de cultura {area_a}**")
 m = display_mapa(df_area, dfb_map)
 st_data = st_folium(m, width="100%", height=700)
 
-############### Abaixo do mapa, com os blocos de informação ##############
-st.markdown("### :ballot_box_with_ballot: **Dados eleitorais & Partidários**")
+# Abaixo do mapa, com os blocos de informação
+st.markdown("### **Dados importantes sobre a Linguagem e Bairro**")
 # #Definindo estrutura de exposição
-# col1, col2, col3 = st.columns(3)
+col1,col2 = st.columns(2) #Adicionar as colunsa ao lo
 
-# with col1:
-#     st.metric(
-#         label = "Total de votos",
-#         value = dicionario2["Total de votos"],
-#         border = True
-#     )
-#     st.metric(
-#         label = "% votos em relação à chapa",
-#         value = dicionario3["Percentual votos"],
-#         border = True
-#     )
+with col1:
+    st.metric(
+        label = "% de inscritos no bairro",
+        value = dicionario2["PCT_inscritos_bairro"],
+        border = True
+    )
+    st.metric(
+        label = "Nº de Idosos e Crianças no bairro",
+        value = dicionario2["N_idosos_inf"],
+        border = True
+    )
+    
+with col2:
+    st.metric(
+        label = "Nº de espaços de convivência social",
+        value = dicionario2["N_espacos_social"],
+        border = True
+    )
+    st.metric(
+        label = "% de pessoas negras",
+        value = dicionario2['pct_negros'],
+        border = True
+    )
 
-# with col2:
-#     st.metric(
-#         label = "Mediana dos votos",
-#         value = dicionario2["Mediana"],
-#         border = True
-#     )
-#     st.metric(
-#         label = "Quantidade de cadeiras",
-#         value = dicionario3["Quantidade de cadeiras"],
-#         border = True
-#     )
 
-# with col3:
-#     st.metric(
-#         label = "Locais de votação atendidos",
-#         value = dicionario2["N Locais de votação"],
-#         border = True
-#     )
-#     st.metric(
-#         label = "Total votos da chapa",
-#         value = dicionario3["Votos totais da chapa"],
-#         border = True
-#     )
-
-# st.markdown(":keycap_star: Nesta análise foram considerados apenas os votos nominais para vereador.")
-
-# ############## GRÁFICOS
-
-# st.markdown("""\n""")
+# GRÁFICOS
 st.markdown("### :bar_chart: **Gráficos**")
-
-# col1, col2 = st.columns(2)
-
-# plot_votos_candidatos = graph_candidatos(df)
-# plot_bairros = graph_bairros(df_area)
-# with col1:
-#     st.plotly_chart(plot_votos_candidatos)
-
-#     st.plotly_chart(plot_bairros)
-
-
-# plot_votos_chapa = graph_candidatos_chapa(df)
+sic
 plot_locais = graph_locais(sic)
 # with col2:
 #     st.plotly_chart(plot_votos_chapa)
