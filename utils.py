@@ -1,6 +1,7 @@
+#%% Importando bibliotecas
+import streamlit as st
 import pandas as pd
 import unicodedata
- 
 
 recife = ['AFLITOS', 'AFOGADOS', 'ALTO DO MANDU', 'ALTO JOSÉ BONIFÁCIO',
        'ALTO JOSÉ DO PINHO', 'ALTO SANTA TEREZINHA', 'APIPUCOS', 'AREIAS',
@@ -26,24 +27,18 @@ recife = ['AFLITOS', 'AFOGADOS', 'ALTO DO MANDU', 'ALTO JOSÉ BONIFÁCIO',
 
 def colgate(df):
     df = df.copy()  # segurança nível 1
-    df['Bairro'] = df['Bairro'].apply(limpar_acento).str.upper()
-
-    # Filtra só Recife e garante cópia independente
-    df = df.query("Bairro in @recife").copy()
-
     # Mapeia estilos
     df['Estilo'] = df['Estilo'].map(dic_sic_cad)
-
     # Converte número de série do Excel -> datetime -> ano
     df['ano'] = (
         pd.to_datetime(df['ano'], unit='D', origin='1899-12-30').dt.year
     )
-
     df = (df
-          .groupby(["Estilo", "ano"], as_index=False)
-          .sum()
-          .sort_values(by='ano', ascending=False))
-
+            .groupby(["Estilo", "ano"], as_index=False)
+            .agg(
+                inv = ('valor', sum),
+                projetos = ('projeto','size')
+            ).sort_values(by='ano', ascending=False))
     return df
 
 def limpar_acento(txt):
@@ -52,7 +47,6 @@ def limpar_acento(txt):
     txt = ''.join(ch for ch in unicodedata.normalize('NFKD', txt) 
         if not unicodedata.combining(ch))
     return txt
-
 
 dic_sic_cad = {
     'Fotografia': 'Fotografia',

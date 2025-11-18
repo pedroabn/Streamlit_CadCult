@@ -7,7 +7,7 @@ import plotly.express as px
 from utils import recife, dic_sic_cad, colgate, limpar_acento
 from streamlit_folium import st_folium
 import folium
-from folium.plugins import MarkerCluster, HeatMap, MiniMap, GroupedLayerControl
+from folium.plugins import MarkerCluster, MiniMap, GroupedLayerControl
 import branca.colormap as cm
 import locale
 locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
@@ -21,7 +21,7 @@ cad_f = (r'C:\Users\pedro.bastos\Documents\vscode\streamlit\dados\Cadastrados.xl
 
 
 @st.cache_data
-def load_sic_data(path_cad, recife):
+def load_cad_data(path_cad, recife):
     df = pd.read_excel(path_cad)
     df['bairro'] = df['bairro'].apply(limpar_acento).str.upper()
     return df.query('bairro in @recife')
@@ -30,24 +30,26 @@ def load_sic_data(path_cad, recife):
 def load_pb_demo(path_demo):
     return gpd.read_file(path_demo,engine="pyogrio")
 
-df = load_sic_data(cad_f, recife)
+df = load_cad_data(cad_f, recife)
 dfb = load_pb_demo(pb_demo)
 
 #%% Construção da parte lateral do streamlit
 with st.sidebar:
     st.title("Filtros de pesquisa")
 
-    # --- listas ---
+    # opções
     lista_areas = sorted(df["area_atuacao"].dropna().unique().tolist()) + ["TODOS"]
     area_a = st.selectbox("Área de atuação", lista_areas)
     
     lista_bairros = sorted(dfb["EBAIRRNOMEOF"].dropna().unique().tolist()) + ["TODOS"]
     bairro_select = st.selectbox("Bairro", lista_bairros)
 
-# --- criar dataframes filtráveis ---
 df_area = df.copy()
 dfb_map = dfb.copy()
-df_pb  = df.copy()   
+# Usado para o gráfico que não altera baseado em area_atuacao 
+df_pb  = df.copy()  
+# Usado para o gráfico que não altera baseado em bairro 
+df_soloa = df.copy()
 
 # FILTRO POR BAIRRO
 if bairro_select != "TODOS":
@@ -58,9 +60,9 @@ if bairro_select != "TODOS":
 # FILTRO POR ÁREA
 if area_a != "TODOS":
     df_area = df_area[df_area["area_atuacao"] == area_a]
+    df_soloa = df_soloa[df_soloa["area_atuacao"] == area_a]
 #%% Construção do mapa
-
-def display_mapa(df_area, dfb):
+def display_mapa(df_area, dfb, df_t):
     
     # 1. Coordenadas para centralização do mapa.
     recife_coords = [-8.05428, -34.88126]
@@ -134,7 +136,7 @@ def display_mapa(df_area, dfb):
     
     # Equipamentos culturais
     fgt = folium.FeatureGroup(name='Teatro', show = True)
-    for row in teatro.itertuples():
+    for row in df_t.itertuples():
         #Definição de onde se encontra o local
         location_e = (row.latitude, row.longitude)
         popup_textep = folium.Popup(
@@ -166,7 +168,7 @@ def display_mapa(df_area, dfb):
 
     return m
 
-#%%Interior do site
+#%%Dicionário 1:  Header
 # FICHA DA AREA DE ATUAÇÃ0
 ## Criando a função para obtenção dos dados SOBRE A AREA DE ATUAÇÃO (HEADER)
 def dict_area(df):
@@ -177,7 +179,7 @@ def dict_area(df):
             df[col] = df[col].fillna("Não informado")
     
     #Numérica
-    df['idade'] = pd.to_numeric(df['idade'], errors='coerce').dropna()
+    df['idade'] = pd.to_numeric(df['idade'], errors='coerce')
                 
     gb_cads = df.groupby(['area_atuacao']).agg(
         inscritos=('nome', 'size'),
@@ -204,6 +206,7 @@ def dict_area(df):
             linha = filtro.iloc[0]
     else:
         linha = None
+        
     dicionario = {
         "NOME": area_a,
 
@@ -244,22 +247,13 @@ def dict_area(df):
         )
     }
 
-
     return dicionario
 
 dicionario = dict_area(df_area)
-
-####################----------------------------###########################
-#%% Parte inferior ao mapa
+#%% Dicionário 2: Abaixo do mapa
 # Dados por bairro - Usar a DF direta por bairro aqui
 def dados_Area_bairro(_df_filtrado: pd.DataFrame, _dfb_filtrado: pd.DataFrame) -> Dict[str, Union[str, int]]:
-    if _df_filtrado.empty or _dfb_filtrado.empty:
-        return {
-            "PCT_inscritos_bairro": "0%",
-            "N_idosos_inf": 0,
-            "pct_negros":0,
-            "N_espacos_social": 0,
-        }
+
     try:
         # Totais
         total_no_bairro = _dfb_filtrado["inscritos"].sum()
@@ -294,122 +288,61 @@ def dados_Area_bairro(_df_filtrado: pd.DataFrame, _dfb_filtrado: pd.DataFrame) -
         }
         
 dicionario2 = dados_Area_bairro(df_area, dfb_map)
-
-# # DADOS DE COMPARATIVO ENTRE O GERAL E A AREA DE ATUAÇÃO ESCOLHIDA
-# def display_dados_eleitorais(df):
-#     # Minerando dados
-#     sigla_partido = df_area["SG_PARTIDO"].values[0]
-#     df_partido = df[df["SG_PARTIDO"] == sigla_partido]
-#     df_partido = df_partido.groupby(['NM_URNA_CANDIDATO','NR_CANDIDATO','DS_SIT_TOT_TURNO'
-#     ],as_index=False)['QT_VOTOS'].sum()
-
-#     # Separando dados
-#     perct_votos = f"{(dicionario2["Total de votos"]/df_partido["QT_VOTOS"].sum())*100 :.1f} %"
-#     numero_cadeiras = df_partido["DS_SIT_TOT_TURNO"].isin(["ELEITO POR QP",
-#     "ELEITO POR MÉDIA"]).sum()
-#     votos_totais_chapa = df_partido["QT_VOTOS"].sum()
-
-#     dicionario3 = {
-#         "Percentual votos":perct_votos,
-#         "Quantidade de cadeiras": numero_cadeiras,
-#         "Votos totais da chapa": votos_totais_chapa
-#     }
-
-#     return dicionario3
-
-# dicionario3 = display_dados_eleitorais(df)
-
-# # Definindo funções
-# def graph_candidatos(df):
-#     # Organizando dados
-#     df = df.groupby(["NM_URNA_CANDIDATO","SG_PARTIDO"],as_index=False)['QT_VOTOS'].sum()
-#     df = df.sort_values(by='QT_VOTOS', ascending=False)
-#     df = df.head(10)
+#%% Gráficos da área x bairro
+# DADOS DE COMPARATIVO ENTRE O GERAL E A AREA DE ATUAÇÃO ESCOLHIDA 
+def graph_cad(base):
+    df = base.copy()
+    df['bairros_cep'] = df['bairros_cep'].apply(limpar_acento).str.upper().replace({'COHAB':'COHAB - IBURA DE CIMA',
+                                                                'SÍTIO DOS PINTOS':'SÍTIO DOS PINTOS - SÃO BRÁS'})
+    # Organizando dados          
+    dff = df.groupby(["bairros_cep","area_atuacao"]).agg(
+        cadastros = ('nome', "size")).reset_index()
+    dff = dff.sort_values(by='cadastros', ascending=False)
+    dff = dff.head(5)
     
-#     #Definindo cores - posso fazer isso com area de atuação
-#     cores_partidos = {
-#     "MDB": "blue",
-#     "NOVO": "orange",
-#     "PSD": "cyan",
-#     "PDT": "pink",
-#     "PODE": "coral",
-#     "REPUBLICANOS": "gold",
-#     "CIDADANIA": "brown",
-#     "PL": "goldenrod",
-#     "PV": "lime",
-#     "PP": "teal",
-#     "PRD": "green",
-#     "DC": "olive",
-#     "PRTB": "navy",
-#     "UP": "maroon",
-#     "PT": "red",
-#     "REDE": "indigo",
-#     "PSOL": "purple",
-#     "AGIR": "skyblue",
-#     "PSDB": "darkgreen",
-#     "PSB": "salmon",
-#     "UNIÃO": "darkblue",
-#     "AVANTE": "darkred",
-#     "PSTU": "darkorange",
-#     "PC do B": "darkviolet"
-#     }
+    # Organizando o Plot
+    fig = px.bar(dff, x='bairros_cep', y='cadastros', text_auto='cadastros',
+                 title=f"Top 5 bairros com mais cadastrados em {area_a}",
+                 labels ={"bairros_cep":"Bairros", "cadastros":"Quantidade de cadastrados"})
+    cores = ['#ffffff' if b != bairro_select else "#27b3d6" for b in dff['bairros_cep']]
+    fig.update_traces(marker_color=cores)
+
+    return fig
+#%% Gráfico de maiores cadastrados no bairro
+def graph_cad_por_bairro(base):
+    df = base.copy()
+    df['bairros_cep'] = df['bairros_cep'].apply(limpar_acento).str.upper().replace({'COHAB':'COHAB - IBURA DE CIMA',
+                                                                'SÍTIO DOS PINTOS':'SÍTIO DOS PINTOS - SÃO BRÁS'})
+    # Organizando dados          
+    dff = df.groupby(["bairros_cep","area_atuacao"]).agg(
+        cadastros = ('nome', "size")).reset_index()
+    dff = dff.sort_values(by='cadastros', ascending=False)
+    dff = dff.head(3)
     
-#     # Organizando o Plot
-#     fig = px.bar(df, x='QT_VOTOS', y='NM_URNA_CANDIDATO', orientation = 'h',
-#     hover_data="SG_PARTIDO",title=f"Top 10 mais votados", labels ={"NM_URNA_CANDIDATO":"",
-#     "QT_VOTOS":"Quantidade de votos"})
+    # Organizando o Plot
+    fig = px.bar(dff, y='area_atuacao', x='cadastros', orientation= 'h',
+                 title=f"Top 5 áreas de atuação com mais cadastrados em {bairro_select}",text_auto='cadastros',
+                 labels ={ "cadastros":"Quantidade de cadastrados", "area_atuacao":"Área de atuação"}
+                ).update_yaxes(type="category",         
+                categoryorder="category ascending" )
+    cores = ['#ffffff' if b != area_a else "#27b3d6" for b in dff['area_atuacao']]
+    fig.update_traces(marker_color=cores)
 
-#     fig.update_traces(marker_color=[cores_partidos[p] for p in df['SG_PARTIDO']])
+    return fig
 
-#     return fig
-
-
-# def graph_candidatos_chapa(df):
-#     # Organizando dados
-#     sigla_partido = df_area["SG_PARTIDO"].values[0]
-#     df = df[df["SG_PARTIDO"] == sigla_partido]
-#     df = df.groupby(["NM_URNA_CANDIDATO","DS_GENERO"],as_index=False)['QT_VOTOS'].sum()
-#     df = df.sort_values(by='QT_VOTOS', ascending=False)
-#     df = df.head(10)
-
-#     # Definindo as cores
-#     cores_genero = {"MASCULINO":"blue","FEMININO":"pink"}
-
-#     # Organizando plot
-#     fig = px.bar(df, x='QT_VOTOS', y='NM_URNA_CANDIDATO', orientation = 'h',
-#     hover_data="DS_GENERO",title=f"Top 10 mais votados do {sigla_partido}",
-#      labels ={"NM_URNA_CANDIDATO":"", "QT_VOTOS":"Quantidade de votos"})
-
-#     fig.update_traces(marker_color=[cores_genero[p] for p in df['DS_GENERO']])
-
-#     return fig
-
-# def graph_bairros(df):
-#     # Organizando dados
-#     df = df.groupby(["DISTRITO_ADM","BAIRRO"],as_index=False)['QT_VOTOS'].sum()
-#     df = df.sort_values(by='QT_VOTOS', ascending=False)
-#     df = df.head(10)
-
-#     # Posso fazer isso aqui com as informações de genero - raça - escolaridade - idosos/crianças
-#     cores_itens = {
-#     "DABEL": "#1f77b4",  # Azul
-#     "DABEN": "#ff7f0e",  # Laranja
-#     "DAENT": "#2ca02c",  # Verde
-#     "DAGUA": "#d62728",  # Vermelho
-#     "DAICO": "#9467bd",  # Roxo
-#     "DAMOS": "#8c564b",  # Marrom
-#     "DAOUT": "#e377c2",  # Rosa
-#     "DASAC": "#7f7f7f"   # Cinza
-#     }
+#%% Scatter
+def graf_scatter(base):
+    df = base.copy()
+    # Espaços sociais
+    cols = ["n_escolas", "qtd_Pracas", "Qtd_equipamentos", "compaz"]
+    df['conv_social'] = df[cols].fillna(0).sum(axis=1)
     
-#     # Organizando plot
-#     fig = px.bar(df, x='QT_VOTOS', y='BAIRRO', orientation = 'h',
-#     hover_data="DISTRITO_ADM",title=f"Top 10 bairros {area_a}",
-#      labels ={"BAIRRO":"", "QT_VOTOS":"Quantidade de votos"})
-
-#     fig.update_traces(marker_color=[cores_itens[p] for p in df['DISTRITO_ADM']])
-
-#     return fig
+    fig = px.scatter(df, x="inscritos", y="total_pessoas",
+                     title="Nº de Cadastrados, por Nº de total de pessoas, e Espaços de convivência",
+                     size="conv_social", hover_name="EBAIRRNOMEOF", labels=({}))
+    cores = ['#ffffff' if b != bairro_select else "#27b3d6" for b in df['EBAIRRNOMEOF']]
+    fig.update_traces(marker_color=cores)
+    return fig
 #%% SIC
 def graph_locais(df):
     # Organizando dados
@@ -421,16 +354,15 @@ def graph_locais(df):
     fig = px.histogram(
         df,
         x='ano',
-        y='valor',
+        y='inv',
         text_auto=True,
+        labels={"ano":"Ano","inv":"Investimento"},
         title=f"Investimento da área no SIC ao longo dos anos: {area_a}"
     ).update_xaxes(type="category",        
     title_text="Ano", 
     categoryorder="category ascending" )
 
     return fig
-
-
 
 #%% Criando a cara da app
 ## Escrevendo a ficha
@@ -466,15 +398,14 @@ st.markdown(f"""<style>
     <tr><td>Raça</td><td>{dicionario["RAÇA"]}</td></tr>
 </table>
 """, unsafe_allow_html=True)
-
 # Fim do header
 # Mapa
-
 st.markdown(f"### :round_pushpin: **Mapa de Fazedores de cultura {area_a}**")
-m = display_mapa(df_area, dfb_map)
-st_data = st_folium(m, width="100%", height=700)
 
-# Abaixo do mapa, com os blocos de informação
+m = display_mapa(df_area, dfb_map, teatro)
+
+st_data = st_folium(m, width="100%", height=700)
+#%% Abaixo do mapa, com os blocos de informação
 st.markdown("### **Dados importantes sobre a Linguagem e Bairro**")
 # #Definindo estrutura de exposição
 col1,col2 = st.columns(2) #Adicionar as colunsa ao lo
@@ -503,12 +434,14 @@ with col2:
         border = True
     )
 
-
-# GRÁFICOS
+#%% GRÁFICOS
 st.markdown("### :bar_chart: **Gráficos**")
-sic
-plot_locais = graph_locais(sic)
-# with col2:
-#     st.plotly_chart(plot_votos_chapa)
 
+plot_locais = graph_locais(sic)
 st.plotly_chart(plot_locais)
+plot_area_a = graph_cad(df_soloa)
+st.plotly_chart(plot_area_a)
+plot_area_b = graph_cad_por_bairro(df_pb)
+st.plotly_chart(plot_area_b)
+scatter_plot = graf_scatter(dfb)
+st.plotly_chart(scatter_plot)
