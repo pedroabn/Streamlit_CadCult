@@ -1,27 +1,14 @@
-# Core
 streamlit==1.32.2
 pandas==2.2.1
 numpy==1.26.4
 
-# Visualização
 plotly==5.19.0
 
-# Mapas Folium
+# Mapas - Folium não precisa geoespacial
 folium==0.15.1
 streamlit-folium==0.15.0
 branca==0.7.0
 
-# Geoprocessamento (compatível com Python 3.11)
-geopandas==0.14.3
-pyogrio==0.7.2
-pyproj==3.5.0
-shapely==2.0.2
-
-# Excel
 openpyxl==3.1.2
-
-# Utilidades
 unicodedata2==15.1.0
-
-# Compatibilidade Streamlit Cloud
 protobuf==4.25.1
