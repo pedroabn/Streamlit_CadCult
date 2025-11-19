@@ -7,7 +7,6 @@ from core.metricas import dict_area, dados_Area_bairro
 from visuals.mapa import display_mapa
 from visuals.graficos import graph_locais,graph_cad,graph_cad_por_bairro, graf_scatter
 
-locale.setlocale(locale.LC_ALL, "pt_BR.UTF-8")
 st.set_page_config(layout="wide", page_title="Cadastros Culturais - Recife")
 
 # --- Carregamento de dados (tudo cacheado) ---
