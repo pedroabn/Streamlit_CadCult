@@ -88,14 +88,6 @@ def dados_Area_bairro(
     _df_filtrado: pd.DataFrame, _dfb_filtrado: pd.DataFrame
 ) -> Dict[str, Union[str, int, float]]:
 
-    if _df_filtrado.empty or _dfb_filtrado.empty:
-        return {
-            "PCT_inscritos_bairro": "0%",
-            "N_idosos_inf": 0,
-            "N_espacos_social": 0,
-            "pct_negros": "0.0%",
-        }
-
     try:
         total_no_bairro = _dfb_filtrado["inscritos"].sum()
         na_area = len(_df_filtrado)
