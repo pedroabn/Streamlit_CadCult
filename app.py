@@ -19,10 +19,10 @@ sic = load_sic()
 with st.sidebar:
     st.title("Filtros de pesquisa")
 
-    lista_areas = sorted(df["area_atuacao"].dropna().unique().tolist()) + ["TODOS"]
+    lista_areas = ["TODOS"] + sorted(df["area_atuacao"].dropna().unique().tolist())
     area_a = st.selectbox("Área de atuação", lista_areas)
 
-    lista_bairros = sorted(dfb["EBAIRRNOMEOF"].dropna().unique().tolist()) + ["TODOS"]
+    lista_bairros = ["TODOS"] + sorted(dfb["EBAIRRNOMEOF"].dropna().unique().tolist())
     bairro_select = st.selectbox("Bairro", lista_bairros)
 
 # --- DataFrames filtrados ---
