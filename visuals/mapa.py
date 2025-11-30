@@ -6,7 +6,7 @@ import pandas as pd
 
 def display_mapa(df_area, dfb, df_t):
     recife_coords = [-8.05428, -34.88126]
-    m = folium.Map(location=recife_coords, zoom_start=13, tiles="OpenStreetMap")
+    m = folium.Map(location=recife_coords, zoom_start=13, tiles="Cartodb dark_matter")
 
     marker_cluster = MarkerCluster(name="Cadastros totais", show=True).add_to(m)
     MiniMap(toggle_display=True).add_to(m)
